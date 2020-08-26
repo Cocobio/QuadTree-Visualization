@@ -1,4 +1,6 @@
 import pygame
+from math import fabs
+import queue
 
 WHITE = 0
 GREY = 1
@@ -10,12 +12,14 @@ SW = 2
 SE = 3
 
 class Node:
-	def __init__(self, t=GREY, x=0.0, y=0.0):
+	def __init__(self, t=GREY, x=0.0, y=0.0, i=0):
 		self.children = [None, None, None, None]
 		self.x = x
 		self.y = y
-		self.info = None
+		self.info = i
 		self.type = t
+
+		self.selected = False
 
 def compare(p, x, y):
 	if p.x<x:
@@ -43,7 +47,9 @@ class QuadTree:
 		self.quadrant_color_green = (92,210,95)
 		self.quadrant_color_red = (236,42,127)
 		self.quadrant_color = self.quadrant_color_red
+
 		self.point_color = (236,168,42)
+		self.point_color_accent = (235,0,54)
 
 		self.root = None
 
@@ -51,18 +57,21 @@ class QuadTree:
 
 		## Drawing
 		self.bb = False
+		# for drawing
+		self.searching = False
 
-	def add_point(self, x, y):
+	def add_point(self, x, y, i=0):
 		lx = self.width
 		ly = self.height
-		center = [self.width/2, self.height/2]
+		center = [self.width/2.0, self.height/2.0]
+
+		p = Node(BLACK,x,y,i)
 
 		if self.root == None:
-			self.root = Node(BLACK,x,y)
+			self.root = p
 			self.size += 1
 			return
 		
-		p = Node(BLACK,x,y)
 
 		if self.root.type == BLACK:
 			if self.root.x == x and self.root.y == y:
@@ -87,7 +96,7 @@ class QuadTree:
 			q = compare(p,*center)
 
 		if t.children[q] == None:
-			t.children[q] = Node(BLACK,x,y)
+			t.children[q] = p
 		elif t.children[q].x == x and t.children[q].y == y:
 			return
 		else:
@@ -107,18 +116,94 @@ class QuadTree:
 				q = compare(p,*center)
 				uq = compare(u,*center)
 
-			t.children[q] = Node(BLACK,x,y)
+			t.children[q] = p
 			t.children[uq] = u
 
 		self.size += 1
 
+	def remove_point(self, x, y):
+		lx = self.width
+		ly = self.height
+		center = [self.width/2.0, self.height/2.0]
+
+		p = Node(BLACK,x,y)
+
+		if self.root == None:
+			return
+		elif self.root.type == BLACK:
+			if self.root.x == p.x and self.root.y == p.y:
+				self.root = None
+				self.size -= 1
+			return
+
+		t = self.root
+		f = None
+
+		while True:
+			q = compare(p,*center)
+
+			if t.children[q] == None:
+				return
+
+			if t.children[q].type == GREY and (t.children[q^1]!=None or t.children[q^2]!=None or t.children[q^3]!=None):
+				f = t
+				qf = q
+
+			ft = t
+			t = t.children[q]
+
+			center[0] += self.XF[q]*lx
+			center[1] += self.YF[q]*ly
+
+			lx /= 2
+			ly /= 2
+
+			if t==None or t.type!=GREY:
+				break
+
+		if t==None or t.x!=p.x or t.y!=p.y:
+			return
+
+		self.size -= 1
+
+		ft.children[q] = None
+		siblings = 0
+		for i in range(4):
+			if ft.children[i]!=None:
+				if ft.children[i].type==GREY:
+					return
+				siblings += 1
+
+		if siblings>1:
+			return
+
+		t = self.root if f==None else f.children[qf]
+
+		while t!=None and t.type==GREY:
+			q=0
+			while t.children[q]==None:
+				q += 1
+
+			tmp = t.children[q]
+			t.children[q] = None
+			t = tmp
+
+		if f==None:
+			self.root = t
+		else:
+			f.children[qf] = t
+
+
 	def recursive_draw(self, screen, node, x, y, w, h):
 		if node.type == BLACK:
-			pygame.draw.circle(screen, self.point_color, (int(node.x), int(node.y)), 2)
+			if self.searching:
+				pygame.draw.circle(screen, self.point_color_accent if node.selected else self.point_color, (int(node.x), int(node.y)), 2)
+			else:
+				pygame.draw.circle(screen, self.point_color, (int(node.x), int(node.y)), 2)
 		elif node.type == GREY:
 			if self.bb:
-				pygame.draw.line(screen, self.quadrant_color, (x,y-h/2), (x,y+h/2), 2)
-				pygame.draw.line(screen, self.quadrant_color, (x-w/2,y), (x+w/2,y), 2)
+				pygame.draw.line(screen, self.quadrant_color, (x,y-h/2), (x,y+h/2), 1)
+				pygame.draw.line(screen, self.quadrant_color, (x-w/2,y), (x+w/2,y), 1)
 
 			for i in range(4):
 				if node.children[i] != None:
@@ -141,3 +226,38 @@ class QuadTree:
 			self.quadrant_color = self.quadrant_color_green
 		else:
 			self.quadrant_color = self.quadrant_color_red
+
+	def set_searching(self, s):
+		self.searching = s
+
+	def recursive_region_search(self, node, x, y, w, h, r_c, r_w, r_h, f_lambda):
+		if node.type == BLACK:
+			if fabs(node.x-r_c[0])*2 <= r_w and fabs(node.y-r_c[1])*2 <= r_h:
+				node.selected = True
+				f_lambda(node)
+			return
+		for i in range(4):
+			if node.children[i] != None and fabs(x+self.XF[i]*w-r_c[0])*2 <= w+r_w and fabs(y+self.YF[i]*h-r_c[1])*2 <= h+r_h:
+				self.recursive_region_search(node.children[i], x+self.XF[i]*w, y+self.YF[i]*h, w/2, h/2, r_c, r_w, r_h, f_lambda)
+
+	def search_region(self, center, w, h, f_lambda):
+		if self.root == None:
+			return
+
+		# Clean selected ones
+		q = queue.Queue()
+
+		q.put(self.root)
+
+		while not q.empty():
+			n = q.get()
+			if n.type == GREY:
+				for i in range(4):
+					if n.children[i] != None:
+						q.put(n.children[i])
+			else:
+				n.selected = False
+		######################
+
+		self.recursive_region_search(self.root,self.width/2,self.height/2,self.width,self.height,center,w,h, f_lambda)
+
