@@ -92,9 +92,9 @@ while running:
 		if event.type == pygame.QUIT:
 			running = False
 		if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-			p = [i for i in pygame.mouse.get_pos()]
 
 			if manual_insert:
+				p = [i for i in pygame.mouse.get_pos()]
 				q.add_point(*p)
 
 		if event.type == pygame.KEYDOWN:
