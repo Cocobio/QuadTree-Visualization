@@ -34,7 +34,7 @@ def read_and_parse_from(f):
 background = (34,34,34)
 
 # Screen size
-scale_factor = 3
+scale_factor = 5
 width = 360*scale_factor
 height = 180*scale_factor
 
